@@ -1,0 +1,122 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local player = Players.LocalPlayer
+
+local remotes = ReplicatedStorage:WaitForChild("Orbital_Remotes")
+local SendStrikeRequest = remotes:WaitForChild("SendStrikeRequest")
+
+-- UI Setup
+local tool = script.Parent
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "StrikeUI"
+gui.Enabled = false
+gui.Parent = player:WaitForChild("PlayerGui")
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 240, 0, 180)
+frame.Position = UDim2.new(1, -250, 1, -200)
+frame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+frame.BorderSizePixel = 0
+frame.Parent = gui
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1,0,0,30)
+title.BackgroundTransparency = 1
+title.Font = Enum.Font.SourceSansBold
+title.TextSize = 22
+title.Text = "Request Strike"
+title.TextColor3 = Color3.new(1,1,1)
+title.Parent = frame
+
+-- X
+local xLabel = Instance.new("TextLabel")
+xLabel.Text = "X Coordinate"
+xLabel.Size = UDim2.new(1,-20,0,20)
+xLabel.Position = UDim2.new(0,10,0,35)
+xLabel.BackgroundTransparency = 1
+xLabel.TextColor3 = Color3.new(1,1,1)
+xLabel.Parent = frame
+
+local xBox = Instance.new("TextBox")
+xBox.PlaceholderText = "Enter X"
+xBox.Size = UDim2.new(1,-20,0,30)
+xBox.Position = UDim2.new(0,10,0,55)
+xBox.BackgroundColor3 = Color3.fromRGB(40,40,40)
+xBox.TextColor3 = Color3.new(1,1,1)
+xBox.Parent = frame
+
+-- Z
+local zLabel = Instance.new("TextLabel")
+zLabel.Text = "Z Coordinate"
+zLabel.Size = UDim2.new(1,-20,0,20)
+zLabel.Position = UDim2.new(0,10,0,90)
+zLabel.BackgroundTransparency = 1
+zLabel.TextColor3 = Color3.new(1,1,1)
+zLabel.Parent = frame
+
+local zBox = Instance.new("TextBox")
+zBox.PlaceholderText = "Enter Z"
+zBox.Size = UDim2.new(1,-20,0,30)
+zBox.Position = UDim2.new(0,10,0,110)
+zBox.BackgroundColor3 = Color3.fromRGB(40,40,40)
+zBox.TextColor3 = Color3.new(1,1,1)
+zBox.Parent = frame
+
+-- Buttons
+local artilleryBtn = Instance.new("TextButton")
+artilleryBtn.Size = UDim2.new(0.48,-10,0,30)
+artilleryBtn.Position = UDim2.new(0,10,0,145)
+artilleryBtn.Text = "Artillery"
+artilleryBtn.Font = Enum.Font.SourceSansBold
+artilleryBtn.BackgroundColor3 = Color3.fromRGB(0,120,255)
+artilleryBtn.TextColor3 = Color3.new(1,1,1)
+artilleryBtn.Parent = frame
+
+local orbitalBtn = Instance.new("TextButton")
+orbitalBtn.Size = UDim2.new(0.48,-10,0,30)
+orbitalBtn.Position = UDim2.new(0.52,0,0,145)
+orbitalBtn.Text = "Orbital"
+orbitalBtn.Font = Enum.Font.SourceSansBold
+orbitalBtn.BackgroundColor3 = Color3.fromRGB(255,60,0)
+orbitalBtn.TextColor3 = Color3.new(1,1,1)
+orbitalBtn.Parent = frame
+
+-- Tool equip/unequip
+tool.Equipped:Connect(function()
+	gui.Enabled = true
+end)
+
+tool.Unequipped:Connect(function()
+	gui.Enabled = false
+end)
+
+-- Send artillery strike request
+artilleryBtn.MouseButton1Click:Connect(function()
+	local x = tonumber(xBox.Text)
+	local z = tonumber(zBox.Text)
+	if not x or not z then return end
+
+	SendStrikeRequest:FireServer(Vector2.new(x, z))
+
+	artilleryBtn.Text = "Sent!"
+	task.delay(1, function()
+		artilleryBtn.Text = "Artillery"
+	end)
+end)
+
+-- Use your existing orbital code
+local OrbitalRequest = remotes:WaitForChild("RequestOrbitalStrike")
+
+orbitalBtn.MouseButton1Click:Connect(function()
+	local x = tonumber(xBox.Text)
+	local z = tonumber(zBox.Text)
+	if not x or not z then return end
+
+	OrbitalRequest:FireServer(Vector2.new(x, z))
+
+	orbitalBtn.Text = "Called!"
+	task.delay(1, function()
+		orbitalBtn.Text = "Orbital"
+	end)
+end)
