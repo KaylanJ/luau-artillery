@@ -1,0 +1,243 @@
+-- Artillery_Client
+
+print("Artillery client (FINAL CLEANED) loading...")
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+
+local player = Players.LocalPlayer
+local remotes = ReplicatedStorage:WaitForChild("Artillery_Remotes")
+local FireEvent = remotes:WaitForChild("FireArtillery")
+local serverControlRemote = remotes:WaitForChild("OperatorStatus")
+
+
+--gui getter
+local function getPlayerGui()
+	local pg = player:FindFirstChild("PlayerGui")
+	if pg then return pg end
+	repeat
+		pg = player:FindFirstChild("PlayerGui")
+		task.wait()
+	until pg
+	return pg
+end
+
+--map
+local MAP_MIN_X, MAP_MAX_X = -2555, 2555
+local MAP_MIN_Z, MAP_MAX_Z = -2555, 2555
+
+local MAX_RANGE = 6000
+local SHELL_SPEED = 1050   -- MUST match server
+
+--offsets
+local BASE_YAW_OFFSET = 0
+local BARREL_PITCH_OFFSET = 90 -- baseline because hinge 0° = downward
+
+--servo settings
+local BASE_RESPONSIVENESS = 8
+local BASE_SPEED = 100
+local BASE_TORQUE = 1_000_000
+
+local BARREL_RESPONSIVENESS = 25
+local BARREL_SPEED = 180
+local BARREL_TORQUE = 10_000_000
+
+--state
+local controlledModel = nil
+local inMode = false
+local currentTargetPos = Vector3.new()
+local coordGui = nil
+local mapGui = nil
+
+local function worldToMap(worldPos)
+	return Vector2.new(
+		math.clamp((worldPos.X - MAP_MIN_X) / (MAP_MAX_X - MAP_MIN_X), 0, 1),
+		math.clamp((worldPos.Z - MAP_MIN_Z) / (MAP_MAX_Z - MAP_MIN_Z), 0, 1)
+	)
+end
+
+local function findCannonModelFromSeat(seat)
+	if not seat then return nil end
+	return seat:FindFirstAncestor("AT-TE Cannon")
+end
+
+local function projectOntoPlane(v, n)
+	return v - n * v:Dot(n)
+end
+
+local function signedAngleBetween(a, b, axis)
+	local an = a.Unit
+	local bn = b.Unit
+	local cross = an:Cross(bn)
+	local sinTerm = axis:Dot(cross)
+	local cosTerm = an:Dot(bn)
+	return math.atan2(sinTerm, cosTerm)
+end
+
+local function findSurfaceYAtXZ(x, z)
+	local origin = Vector3.new(x, 2000, z)
+	local result = Workspace:Raycast(origin, Vector3.new(0, -4000, 0))
+	return (result and result.Position.Y) or 0
+end
+
+-- gui
+local function createCoordinateGui()
+	if coordGui then coordGui:Destroy() end
+	coordGui = Instance.new("ScreenGui")
+	coordGui.ResetOnSpawn = false
+
+	local frame = Instance.new("Frame")
+	frame.Size = UDim2.fromOffset(260, 140)
+	frame.Position = UDim2.new(0.75, 0, 0.75, 0)
+	frame.BackgroundColor3 = Color3.fromRGB(10,10,20)
+	frame.Parent = coordGui
+
+	local title = Instance.new("TextLabel")
+	title.Text = "TANK TARGET (WORLD X, Z)"
+	title.Size = UDim2.new(1,0,0,24)
+	title.BackgroundTransparency = 1
+	title.Font = Enum.Font.Code
+	title.TextColor3 = Color3.fromRGB(255,130,50)
+	title.Parent = frame
+
+	-- X and Z labels
+	local xLabel = Instance.new("TextLabel")
+	xLabel.Size = UDim2.fromOffset(20, 25)
+	xLabel.Position = UDim2.new(0.1, -25, 0.35, 0)
+	xLabel.BackgroundTransparency = 1
+	xLabel.Font = Enum.Font.Code
+	xLabel.TextColor3 = Color3.new(1,1,1)
+	xLabel.Text = "X:"
+	xLabel.TextXAlignment = Enum.TextXAlignment.Right
+	xLabel.Parent = frame
+
+	local zLabel = Instance.new("TextLabel")
+	zLabel.Size = UDim2.fromOffset(20, 25)
+	zLabel.Position = UDim2.new(0.1, -25, 0.65, 0)
+	zLabel.BackgroundTransparency = 1
+	zLabel.Font = Enum.Font.Code
+	zLabel.TextColor3 = Color3.new(1,1,1)
+	zLabel.Text = "Z:"
+	zLabel.TextXAlignment = Enum.TextXAlignment.Right
+	zLabel.Parent = frame
+
+	-- input boxes
+	local xIn = Instance.new("TextBox")
+	xIn.Size = UDim2.fromOffset(80, 25)
+	xIn.Position = UDim2.new(0.1,0,0.35,0)
+	xIn.Text = "0"
+	xIn.Font = Enum.Font.Code
+	xIn.Parent = frame
+
+	local zIn = Instance.new("TextBox")
+	zIn.Size = UDim2.fromOffset(80, 25)
+	zIn.Position = UDim2.new(0.1,0,0.65,0)
+	zIn.Text = "0"
+	zIn.Font = Enum.Font.Code
+	zIn.Parent = frame
+
+	-- fire button
+	local fireBtn = Instance.new("TextButton")
+	fireBtn.Size = UDim2.fromOffset(100, 40)
+	fireBtn.Position = UDim2.new(0.55,0,0.45,-20)
+	fireBtn.Text = "FIRE!"
+	fireBtn.Font = Enum.Font.Code
+	fireBtn.TextSize = 18
+	fireBtn.Parent = frame
+
+	local function updateTarget()
+		local xx = tonumber(xIn.Text) or 0
+		local zz = tonumber(zIn.Text) or 0
+		local yy = findSurfaceYAtXZ(xx, zz)
+		currentTargetPos = Vector3.new(xx, yy, zz)
+	end
+
+	xIn.FocusLost:Connect(updateTarget)
+	zIn.FocusLost:Connect(updateTarget)
+
+	fireBtn.MouseButton1Click:Connect(function()
+		updateTarget()
+		if not controlledModel then return end
+		local fp = controlledModel:FindFirstChild("FirePoint", true)
+		if fp and (currentTargetPos - fp.Position).Magnitude <= MAX_RANGE then
+			FireEvent:FireServer(controlledModel, currentTargetPos)
+		end
+	end)
+
+	coordGui.Parent = getPlayerGui()
+end
+
+-- enter seat
+local function enterGun(seat)
+	print("Entered seat")
+	local model = findCannonModelFromSeat(seat)
+	if not model then return end
+
+	controlledModel = model
+	inMode = true
+	serverControlRemote:FireServer(true)
+
+
+	createCoordinateGui()
+end
+
+local function leaveGun()
+	inMode = false
+	controlledModel = nil
+	serverControlRemote:FireServer(false)
+
+
+	if coordGui then coordGui:Destroy() coordGui = nil end
+	if mapGui then mapGui:Destroy() mapGui = nil end
+end
+
+local function connectSeatEvents(char)
+	-- Find humanoid
+	local hum = char:FindFirstChildOfClass("Humanoid")
+
+	-- If not found yet, wait for it
+	if not hum then
+		hum = char:WaitForChild("Humanoid", 5)
+	end
+
+	-- If STILL not found, bail out safely
+	if not hum then
+		warn("Humanoid never loaded for character!")
+		return
+	end
+
+	print("Humanoid connected:", hum)
+	
+	print(active)
+
+	-- Connect SEATED event
+	hum.Seated:Connect(function(active, seat)
+		
+		print(active)
+		print("SEATED EVENT FIRED | active =", active, " seat =", seat)
+
+		if active and seat and seat:FindFirstAncestor("AT-TE Cannon") then
+			print(">> ENTER GUN triggered")
+			enterGun(seat)
+		else
+			print(">> LEAVE GUN triggered")
+			leaveGun()
+		end
+	end)
+end
+
+-- delay if needed
+player.CharacterAdded:Connect(function(char)
+	task.wait() -- ensures humanoid exists in real servers
+	connectSeatEvents(char)
+end)
+
+-- connect if character exists
+if player.Character then
+	task.wait()
+	connectSeatEvents(player.Character)
+end
+
