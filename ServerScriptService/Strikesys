@@ -1,0 +1,83 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local artRemotes = ReplicatedStorage:WaitForChild("Artillery_Remotes")
+local orbitalRemotes = ReplicatedStorage:WaitForChild("Orbital_Remotes")
+
+local OperatorStatus = artRemotes:WaitForChild("OperatorStatus")
+local SendStrikeRequest = orbitalRemotes:WaitForChild("SendStrikeRequest")
+
+local StrikeResponse = artRemotes:WaitForChild("StrikeResponse")
+local UpdateStrikeQueue = artRemotes:WaitForChild("UpdateStrikeQueue")
+
+-- List of players currently operating AT-TE artillery
+local Operators = {}   -- [player] = true
+
+-- Strike queue (oldest first)
+local StrikeQueue = {}
+
+-- send msg to operators
+local function broadcastQueue()
+	for op,_ in pairs(Operators) do
+		if op and op.Parent == Players then
+			UpdateStrikeQueue:FireClient(op, StrikeQueue)
+		end
+	end
+end
+
+
+OperatorStatus.OnServerEvent:Connect(function(player, isOperating)
+	if isOperating then
+		Operators[player] = true
+	else
+		Operators[player] = nil
+	end
+
+	-- keep their queue visible up to date
+	broadcastQueue()
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	Operators[player] = nil
+end)
+
+--strike request
+SendStrikeRequest.OnServerEvent:Connect(function(player, coords)
+	if typeof(coords) ~= "Vector2" then return end
+
+	local requesterPos
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if hrp then
+		requesterPos = Vector2.new(hrp.Position.X, hrp.Position.Z)
+	else
+		requesterPos = Vector2.new(0,0)
+	end
+
+	table.insert(StrikeQueue, {
+		requester = player.Name,
+		coords = coords,
+		requesterPos = requesterPos
+	})
+
+	broadcastQueue()
+end)
+
+
+StrikeResponse.OnServerEvent:Connect(function(operator, requesterName, accepted)
+	-- Remove from queue
+	for i, entry in ipairs(StrikeQueue) do
+		if entry.requester == requesterName then
+			table.remove(StrikeQueue, i)
+			break
+		end
+	end
+
+	broadcastQueue()
+
+	-- Notify requester
+	local requester = Players:FindFirstChild(requesterName)
+	if requester then
+		StrikeResponse:FireClient(requester, operator.Name, accepted)
+	end
+end)
