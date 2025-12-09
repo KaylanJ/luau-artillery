@@ -1,0 +1,133 @@
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local StarterGui = game:GetService("StarterGui")
+
+local player = Players.LocalPlayer
+local remotes = ReplicatedStorage:WaitForChild("Artillery_Remotes")
+
+local UpdateStrikeQueue = remotes:WaitForChild("UpdateStrikeQueue")
+local StrikeResponse = remotes:WaitForChild("StrikeResponse")
+
+-- main UI
+local gui = Instance.new("ScreenGui")
+gui.Name = "OperatorStrikeUI"
+gui.Parent = player:WaitForChild("PlayerGui")
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 300, 0, 380)
+mainFrame.Position = UDim2.new(0, 20, 1, -400)
+mainFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+mainFrame.BackgroundTransparency = 0.4   -- SEE THROUGH
+mainFrame.Visible = false                 -- Only visible when operator
+mainFrame.BorderSizePixel = 0
+mainFrame.Parent = gui
+
+local scroll = Instance.new("ScrollingFrame")
+scroll.Size = UDim2.new(1, -10, 1, -10)
+scroll.Position = UDim2.new(0,5,0,5)
+scroll.BackgroundTransparency = 1
+scroll.CanvasSize = UDim2.new(0,0,0,0)
+scroll.ScrollBarThickness = 6
+scroll.Parent = mainFrame
+
+local list = Instance.new("UIListLayout")
+list.SortOrder = Enum.SortOrder.LayoutOrder
+list.Padding = UDim.new(0, 6)
+list.Parent = scroll
+
+
+-- create queue entry
+local function createEntry(data)
+	local frame = Instance.new("Frame")
+	frame.Size = UDim2.new(1, -10, 0, 130)
+	frame.BackgroundColor3 = Color3.fromRGB(20,20,20)
+	frame.BackgroundTransparency = 0.3
+	frame.BorderSizePixel = 0
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, -10, 0, 85)
+	label.Position = UDim2.new(0,5,0,5)
+	label.BackgroundTransparency = 1
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.TextYAlignment = Enum.TextYAlignment.Top
+	label.TextColor3 = Color3.new(1,1,1)
+	label.Font = Enum.Font.SourceSans
+	label.TextSize = 18
+
+	label.Text =
+		"Requester: " .. data.requester ..
+		"\nTarget Coordinates ->  X: " .. math.floor(data.coords.X) ..
+		" | Z: " .. math.floor(data.coords.Y) ..
+		"\nRequester Position ->  X: " .. math.floor(data.requesterPos.X) ..
+		" | Z: " .. math.floor(data.requesterPos.Y)
+
+	label.Parent = frame
+
+	-- accept button
+	local accept = Instance.new("TextButton")
+	accept.Size = UDim2.new(0, 90, 0, 28)
+	accept.Position = UDim2.new(0, 10, 1, -35)
+	accept.Text = "ACCEPT"
+	accept.Font = Enum.Font.SourceSansBold
+	accept.BackgroundColor3 = Color3.fromRGB(0,180,0)
+	accept.TextColor3 = Color3.new(1,1,1)
+	accept.Parent = frame
+
+	-- deny button
+	local deny = Instance.new("TextButton")
+	deny.Size = UDim2.new(0, 90, 0, 28)
+	deny.Position = UDim2.new(0, 110, 1, -35)
+	deny.Text = "DENY"
+	deny.Font = Enum.Font.SourceSansBold
+	deny.BackgroundColor3 = Color3.fromRGB(180,0,0)
+	deny.TextColor3 = Color3.new(1,1,1)
+	deny.Parent = frame
+
+	accept.MouseButton1Click:Connect(function()
+		remotes.StrikeResponse:FireServer(data.requester, true)
+	end)
+
+	deny.MouseButton1Click:Connect(function()
+		remotes.StrikeResponse:FireServer(data.requester, false)
+	end)
+
+	return frame
+end
+
+
+-- update queue
+UpdateStrikeQueue.OnClientEvent:Connect(function(queue)
+	-- only display if user is an operator
+	mainFrame.Visible = (#queue > 0)
+
+	-- clear old
+	for _, child in ipairs(scroll:GetChildren()) do
+		if child:IsA("Frame") then child:Destroy() end
+	end
+
+	-- oldest at top, so we just add in normal order
+	for _, entry in ipairs(queue) do
+		local row = createEntry(entry)
+		row.Parent = scroll
+	end
+
+	scroll.CanvasSize = UDim2.new(0,0,0,#queue * 136)
+end)
+
+
+-- notify requester
+StrikeResponse.OnClientEvent:Connect(function(operatorName, accepted)
+	if accepted then
+		StarterGui:SetCore("SendNotification", {
+			Title = "Strike Approved",
+			Text = "Operator " .. operatorName .. " is firing.",
+			Duration = 4
+		})
+	else
+		StarterGui:SetCore("SendNotification", {
+			Title = "Strike Denied",
+			Text = "Operator " .. operatorName .. " refused.",
+			Duration = 4
+		})
+	end
+end)
