@@ -1,0 +1,177 @@
+-- OrbitalStrike_Server
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Debris = game:GetService("Debris")
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+
+local remotes = ReplicatedStorage:WaitForChild("Orbital_Remotes")
+local OrbitalRequest = remotes:WaitForChild("RequestOrbitalStrike")
+
+local ORBITAL_SHELL = ReplicatedStorage:WaitForChild("Orbital_Shell")
+
+-- CONFIG
+local STRIKE_DELAY = 12          -- seconds before shells start falling
+local SHELL_AMOUNT = 22          -- number of shells
+local SPREAD_RADIUS = 40         -- studs
+local SPAWN_HEIGHT_MIN = 600     -- how high above the ground they spawn
+local SPAWN_HEIGHT_MAX = 700
+local DROP_SPEED = 300          -- vertical velocity downward
+local SHELL_LIFETIME = 10        --  cleanup safety
+
+local function getTerrainSurfaceAt(pos)
+	local rp = RaycastParams.new()
+	rp.FilterType = Enum.RaycastFilterType.Exclude
+	rp.FilterDescendantsInstances = {}
+	local origin = Vector3.new(pos.X, 2000, pos.Z)
+	local result = workspace:Raycast(origin, Vector3.new(0, -4000, 0), rp)
+	if result and result.Position then
+		return result.Position
+	end
+	-- fallback
+	local ray = Ray.new(pos + Vector3.new(0, 3000, 0), Vector3.new(0, -6000, 0))
+	local _, hitPos = workspace:FindPartOnRay(ray)
+	return hitPos or pos
+end
+
+-- drops single shell
+local function dropShell(targetPos)
+	local shell = ORBITAL_SHELL:Clone()
+	shell.Parent = workspace
+	shell.CanCollide = false
+	shell.Anchored = false
+
+	-- Pick a random spread offset around the target
+	local offset = Vector3.new(
+		math.random(-SPREAD_RADIUS, SPREAD_RADIUS),
+		0,
+		math.random(-SPREAD_RADIUS, SPREAD_RADIUS)
+	)
+
+	-- Pick a random fall height
+	local spawnHeight = math.random(SPAWN_HEIGHT_MIN, SPAWN_HEIGHT_MAX)
+	local spawnPos = targetPos + offset + Vector3.new(0, spawnHeight, 0)
+
+
+	-- Spawn upright
+	shell.CFrame = CFrame.new(spawnPos)
+
+	local att = Instance.new("Attachment")
+	att.Parent = shell
+	att.CFrame = CFrame.new() -- aligned with shell
+
+	local align = Instance.new("AlignOrientation")
+	align.Attachment0 = att
+	align.RigidityEnabled = true
+	align.ReactionTorqueEnabled = false
+	align.MaxTorque = 1e9
+	align.PrimaryAxisOnly = true        
+	align.Parent = shell
+	align.CFrame = CFrame.new()         
+
+	-- Force vertical fall and kill any spin
+	local downwardVelocity = Vector3.new(0, -DROP_SPEED, 0)
+	task.spawn(function()
+		while shell and shell.Parent do
+			shell.AssemblyLinearVelocity = downwardVelocity
+			shell.AssemblyAngularVelocity = Vector3.zero
+			task.wait()
+		end
+	end)
+	
+	--manual aoe
+	local exploded = false
+
+	local function explode()
+		if exploded then return end
+		exploded = true
+
+		-- snap to ground surface under shell
+		local pos = getTerrainSurfaceAt(shell.Position)
+
+		local BLAST_RADIUS = 40
+		local MAX_DAMAGE = 250
+
+		-- Visual blast sphere
+		local blast = Instance.new("Part")
+		blast.Shape = Enum.PartType.Ball
+		blast.Size = Vector3.new(BLAST_RADIUS * 2, BLAST_RADIUS * 2, BLAST_RADIUS * 2)
+		blast.Color = Color3.fromRGB(0, 200, 255)
+		blast.Material = Enum.Material.Neon
+		blast.Transparency = 0.5
+		blast.CanCollide = false
+		blast.Anchored = true
+		blast.Position = pos
+		blast.Parent = workspace
+		Debris:AddItem(blast, 0.35)
+
+		-- terrain damage
+		local terrain = workspace.Terrain
+		local CRATER_RADIUS = BLAST_RADIUS * 0.55  -- orbital → slightly deeper
+
+		-- carve crater slightly below surface for cleaner hole
+		local craterCenter = pos - Vector3.new(0, CRATER_RADIUS * 0.12, 0)
+		terrain:FillBall(craterCenter, CRATER_RADIUS, Enum.Material.Air)
+		
+		
+		for _, obj in ipairs(workspace:GetDescendants()) do
+			local hum = obj:FindFirstChildOfClass("Humanoid")
+			local root = obj:FindFirstChild("HumanoidRootPart")
+			if hum and root then
+				local d = (root.Position - pos).Magnitude
+				if d <= BLAST_RADIUS then
+					local dmg = MAX_DAMAGE * (1 - d / BLAST_RADIUS)
+					hum:TakeDamage(dmg)
+				end
+			end
+		end
+
+		shell:Destroy()
+	end
+
+
+	--- explode when collision
+	shell.Touched:Connect(function(hit)
+		-- Ignore touching itself or other shells
+		if hit:IsDescendantOf(shell) then return end
+
+		-- Ground or any collidable part triggers explosion
+		if hit.CanCollide or hit:IsA("Terrain") then
+			explode()
+		end
+	end)
+
+
+	-- lifetime deletes 
+	task.delay(SHELL_LIFETIME, function()
+		if shell and shell.Parent then
+			shell:Destroy()
+		end
+	end)
+end
+
+
+-- main thing
+OrbitalRequest.OnServerEvent:Connect(function(player, vectorArg)
+
+	local x,z
+	if typeof(vectorArg) == "Vector2" then
+		x = vectorArg.X
+		z = vectorArg.Y
+	elseif typeof(vectorArg) == "Vector3" then
+		x = vectorArg.X
+		z = vectorArg.Z
+	else
+		return
+	end
+
+	local targetPos = Vector3.new(x, 0, -z)
+
+	-- Delay before shells
+	task.delay(STRIKE_DELAY, function()
+		for i = 1, SHELL_AMOUNT do
+			task.delay(i * 0.12, function()
+				dropShell(targetPos)
+			end)
+		end
+	end)
+end)
