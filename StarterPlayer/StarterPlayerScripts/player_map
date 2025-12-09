@@ -1,0 +1,143 @@
+-- Player_Map
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local mapGui = nil
+local mapVisible = false
+
+-- Map boundaries
+local MAP_MIN_X = -500
+local MAP_MAX_X = 500
+local MAP_MIN_Z = -500
+local MAP_MAX_Z = 500
+local MAP_SIZE_X = MAP_MAX_X - MAP_MIN_X
+local MAP_SIZE_Z = MAP_MAX_Z - MAP_MIN_Z
+
+-- check if player is in seat
+local function IsPlayerGunner()
+	local playerGui = player:FindFirstChild("PlayerGui")
+	if playerGui then
+		local av7Input = playerGui:FindFirstChild("AV7_CoordinateInput")
+		local artInput = playerGui:FindFirstChild("Artillery_CoordinateInput") or playerGui:FindFirstChild("Artillery_CoordinateInput")
+		local artMap = playerGui:FindFirstChild("Artillery_Map")
+		return (av7Input ~= nil or artInput ~= nil or artMap ~= nil)
+	end
+	return false
+end
+-- roblox map to this map
+local function worldToMap(pos)
+	local rx = (pos.X - MAP_MIN_X) / MAP_SIZE_X
+	local rz = (pos.Z - MAP_MIN_Z) / MAP_SIZE_Z
+
+	return Vector2.new(
+		math.clamp(rx,0,1),
+		math.clamp(rz,0,1)
+	)
+end
+
+
+local function createMap()
+	if mapGui then mapGui:Destroy() end
+
+	mapGui = Instance.new("ScreenGui")
+	mapGui.Name = "Player_Map"
+	mapGui.ResetOnSpawn = false
+
+	local frame = Instance.new("Frame")
+	frame.Name = "MapFrame"
+	frame.Position = UDim2.new(0.5,-300,0.5,-300)
+	frame.Size = UDim2.new(0,600,0,600)
+	frame.BackgroundColor3 = Color3.fromRGB(20,20,40)
+	frame.BorderColor3 = Color3.fromRGB(100,100,255)
+	frame.BorderSizePixel = 3
+	frame.Parent = mapGui
+
+	-- title
+	local title = Instance.new("TextLabel")
+	title.Text = "MAP"
+	title.Font = Enum.Font.Code
+	title.TextSize = 18
+	title.TextColor3 = Color3.fromRGB(255, 140, 50)
+	title.BackgroundTransparency = 1
+	title.Size = UDim2.new(1,0,0,30)
+	title.Parent = frame
+
+	-- map background
+	local mapArea = Instance.new("Frame")
+	mapArea.Name = "MapArea"
+	mapArea.Size = UDim2.new(1,-120,1,-120)
+	mapArea.Position = UDim2.new(0,60,0,60)
+	mapArea.BackgroundColor3 = Color3.fromRGB(10,10,25)
+	mapArea.BorderColor3 = Color3.fromRGB(60,60,120)
+	mapArea.BorderSizePixel = 1
+	mapArea.Parent = frame
+
+	-- grid image
+	local grid = Instance.new("ImageLabel")
+	grid.Size = UDim2.new(1,0,1,0)
+	grid.BackgroundTransparency = 1
+	grid.Image = "rbxassetid://13280043387"
+	grid.ImageTransparency = 0.75
+	grid.ImageColor3 = Color3.fromRGB(60,60,120)
+	grid.ScaleType = Enum.ScaleType.Tile
+	grid.TileSize = UDim2.new(0,50,0,50)
+	grid.Parent = mapArea
+
+	-- player dot
+	local dot = Instance.new("Frame")
+	dot.Name = "PlayerDot"
+	dot.Size = UDim2.new(0,12,0,12)
+	dot.BackgroundColor3 = Color3.fromRGB(0,255,0)
+	dot.BorderSizePixel = 2
+	dot.Parent = mapArea
+
+	mapGui.Parent = player.PlayerGui
+end
+
+
+local function toggle()
+	if isPlayerGunner() then return end  -- DO NOT OPEN IN ARTILLERY
+
+	mapVisible = not mapVisible
+	if mapVisible then
+		createMap()
+	else
+		if mapGui then mapGui:Destroy() mapGui = nil end
+	end
+end
+
+UserInputService.InputBegan:Connect(function(input, gpe)
+	if gpe then return end
+	if input.KeyCode == Enum.KeyCode.M then
+		toggle()
+	end
+end)
+
+--update player dot
+RunService.RenderStepped:Connect(function()
+	if not mapGui then return end
+	if isPlayerGunner() then
+		mapGui:Destroy()
+		mapGui = nil
+		mapVisible = false
+		return
+	end
+
+	if player.Character and player.Character.PrimaryPart then
+		local pos = player.Character.PrimaryPart.Position
+		local mapPos = worldToMap(pos)
+
+		local dot = mapGui.MapFrame.MapArea.PlayerDot
+		dot.Position = UDim2.new(mapPos.X, -6, mapPos.Y, -6)
+	end
+end)
+
+--end on respawn
+player.CharacterAdded:Connect(function()
+	if mapGui then mapGui:Destroy() end
+	mapGui = nil
+	mapVisible = false
+end)
